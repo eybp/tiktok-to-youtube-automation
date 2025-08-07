@@ -42,8 +42,12 @@ class DiscordHandler(logging.Handler):
 def setup_logger():
     """Configure logging settings, including the Discord handler."""
     
+    # --- THIS IS THE FIX ---
+    # Silence the overly verbose 'urllib3' logger used by the 'requests' library.
+    # This prevents the feedback loop where sending a log creates more logs.
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+    # Get the root logger
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
