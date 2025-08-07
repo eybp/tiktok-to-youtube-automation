@@ -60,19 +60,22 @@ def download_and_combine_clips(creators, download_dir, progress_log_path, metada
             try:
                 df = pd.read_csv(temp_csv_path)
                 if not df.empty:
+                    # Append to the main CSV, writing header only if file is new
                     header = not os.path.exists(metadata_path)
                     df.to_csv(metadata_path, mode='a', header=header, index=False, encoding='utf-8')
                     logging.info(f"Appended metadata for {creator} to the main CSV.")
                     
+                    # Mark this creator as done for this run
                     _log_processed_creator(creator, progress_log_path)
             except pd.errors.EmptyDataError:
                 logging.warning(f"Metadata file for {creator} was empty. Skipping.")
             finally:
-                os.remove(temp_csv_path) 
+                os.remove(temp_csv_path) # Clean up temp file
         else:
             logging.warning(f"Could not retrieve or find metadata for {creator}.")
 
     if os.path.exists(metadata_path):
+        # Final check: de-duplicate the master CSV just in case
         final_df = pd.read_csv(metadata_path)
         final_df.drop_duplicates(subset='video_id', inplace=True)
         final_df.to_csv(metadata_path, index=False, encoding='utf-8')
