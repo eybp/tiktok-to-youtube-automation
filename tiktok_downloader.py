@@ -4,8 +4,20 @@ import logging
 import pyktok as pyk
 import pandas as pd
 
+def _load_processed_creators(progress_log_path):
+    """Reads the progress log and returns a set of processed creator usernames."""
+    if not os.path.exists(progress_log_path):
+        return set()
+    with open(progress_log_path, 'r', encoding='utf-8') as f:
+        return {line.strip() for line in f}
+
+def _log_processed_creator(creator, progress_log_path):
+    """Adds a creator's username to the progress log."""
+    with open(progress_log_path, 'a', encoding='utf-8') as f:
+        f.write(f"{creator}\n")
+
 def _download_single_creator(username, download_dir, videos_per_creator):
-    """Downloads clips and metadata for a single creator to a temporary CSV."""
+    """Downloads clips for a single creator and returns the path to their metadata."""
     temp_metadata_path = os.path.join(download_dir, f"temp_{username}_metadata.csv")
     logging.info(f"Downloading up to {videos_per_creator} videos for user: {username}")
     
@@ -16,7 +28,7 @@ def _download_single_creator(username, download_dir, videos_per_creator):
             ent_type='user',
             save_video=True,
             metadata_fn=temp_metadata_path,
-            video_ct=videos_per_creator  # Use the passed-in value here
+            video_ct=videos_per_creator
         )
         
         for filename in os.listdir(os.getcwd()):
@@ -28,35 +40,42 @@ def _download_single_creator(username, download_dir, videos_per_creator):
         logging.error(f"Failed to download videos for {username}: {e}", exc_info=True)
         return None
 
-def download_and_combine_clips(creators, download_dir, videos_per_creator):
+def download_and_combine_clips(creators, download_dir, progress_log_path, metadata_path, videos_per_creator):
     """
-    Downloads videos from a list of creators and combines their metadata.
+    Downloads videos from a list of creators, skipping those already processed
+    in the current run, and appends their metadata to the main CSV file.
     """
     os.makedirs(download_dir, exist_ok=True)
-    all_metadata_dfs = []
-    
+    processed_creators = _load_processed_creators(progress_log_path)
+    logging.info(f"Resuming run. Found {len(processed_creators)} already processed creators.")
+
     for creator in creators:
-        # Pass the download limit down to the single creator function
+        if creator in processed_creators:
+            logging.info(f"Skipping already processed creator: {creator}")
+            continue
+
         temp_csv_path = _download_single_creator(creator, download_dir, videos_per_creator)
+        
         if temp_csv_path and os.path.exists(temp_csv_path):
             try:
                 df = pd.read_csv(temp_csv_path)
-                all_metadata_dfs.append(df)
-                logging.info(f"Successfully processed metadata for {creator}.")
+                if not df.empty:
+                    header = not os.path.exists(metadata_path)
+                    df.to_csv(metadata_path, mode='a', header=header, index=False, encoding='utf-8')
+                    logging.info(f"Appended metadata for {creator} to the main CSV.")
+                    
+                    _log_processed_creator(creator, progress_log_path)
             except pd.errors.EmptyDataError:
                 logging.warning(f"Metadata file for {creator} was empty. Skipping.")
             finally:
-                os.remove(temp_csv_path)
+                os.remove(temp_csv_path) 
         else:
             logging.warning(f"Could not retrieve or find metadata for {creator}.")
 
-    if not all_metadata_dfs:
-        logging.error("No metadata was collected from any creator. Halting process.")
-        return
-
-    combined_df = pd.concat(all_metadata_dfs, ignore_index=True)
-    combined_df.drop_duplicates(subset='video_id', inplace=True)
-
-    main_metadata_path = os.path.join(download_dir, 'metadata.csv')
-    combined_df.to_csv(main_metadata_path, index=False, encoding='utf-8')
-    logging.info(f"All metadata combined into '{main_metadata_path}' with {len(combined_df)} unique videos.")
+    if os.path.exists(metadata_path):
+        final_df = pd.read_csv(metadata_path)
+        final_df.drop_duplicates(subset='video_id', inplace=True)
+        final_df.to_csv(metadata_path, index=False, encoding='utf-8')
+        logging.info(f"Download phase complete. Final metadata contains {len(final_df)} unique videos.")
+    else:
+        logging.warning("Download phase complete, but no metadata was collected.")
