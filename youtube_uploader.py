@@ -47,7 +47,7 @@ def upload_to_youtube(youtube, video_path, title, description, tags):
         logging.error(f"Error uploading video '{title}': {e}", exc_info=True)
         return False
 
-def process_and_upload_clips(download_dir, max_uploads):
+def process_and_upload_clips(download_dir, max_uploads, stop_event):
     """Processes metadata and uploads new, unique clips to YouTube."""
     # Use the passed-in value for the upload limit
     MAX_UPLOADS_PER_DAY = max_uploads
@@ -110,7 +110,11 @@ def process_and_upload_clips(download_dir, max_uploads):
                     
                     if upload_count < MAX_UPLOADS_PER_DAY and DELAY_SECONDS > 0:
                         logging.info(f"Waiting for {DELAY_SECONDS / 3600:.2f} hours before next upload.")
-                        time.sleep(DELAY_SECONDS)
+                        for _ in range(DELAY_SECONDS):
+                            if stop_event.is_set():
+                                logging.warning("🛑 Stop signal received during wait. Aborting wait.")
+                                break
+                            time.sleep(1)
                 else:
                     logging.warning(f"Failed to upload {video_path}. It will be retried on the next run.")
             else:
